@@ -1,9 +1,7 @@
 use bevy::{
     app::{App, First, Plugin},
     ecs::{
-        event::{Event, EventWriter, event_update_system},
-        schedule::IntoScheduleConfigs,
-        system::{NonSendMut, SystemParam},
+        entity::Entity, event::{event_update_system, Event, EventWriter}, schedule::IntoScheduleConfigs, system::{NonSendMut, SystemParam}
     },
 };
 use godot::{
@@ -36,8 +34,14 @@ pub struct GodotSignalArgument {
 pub struct GodotSignal {
     pub name: String,
     pub origin: GodotNodeHandle,
-    pub target: GodotNodeHandle,
+    pub target: GodotSignalTarget,
     pub arguments: Vec<GodotSignalArgument>,
+}
+
+#[derive(Debug, Clone)]
+pub enum GodotSignalTarget {
+    Node(GodotNodeHandle),
+    Entity(Entity),
 }
 
 #[doc(hidden)]
@@ -55,7 +59,11 @@ pub struct GodotSignals<'w> {
 impl<'w> GodotSignals<'w> {
     /// Connect a Godot signal to be forwarded to Bevy's event system
     pub fn connect(&self, node: &mut GodotNodeHandle, signal_name: &str) {
-        connect_godot_signal(node, signal_name, self.signal_sender.0.clone());
+        connect_godot_signal(node, signal_name, self.signal_sender.0.clone(), None);
+    }
+
+    pub fn connect_to_target(&self, node: &mut GodotNodeHandle, signal_name: &str, target: &GodotSignalTarget) {
+        connect_godot_signal(node, signal_name, self.signal_sender.0.clone(), Some(target.clone()));
     }
 }
 
@@ -70,6 +78,7 @@ pub fn connect_godot_signal(
     node: &mut GodotNodeHandle,
     signal_name: &str,
     signal_sender: Sender<GodotSignal>,
+    signal_target: Option<GodotSignalTarget>,
 ) {
     let mut node = node.get::<Node>();
     let node_clone = node.clone();
@@ -85,11 +94,14 @@ pub fn connect_godot_signal(
             .collect();
 
         let origin_handle = GodotNodeHandle::from_instance_id(node_id);
+        let target_handle = signal_target.clone().unwrap_or_else(|| {
+            GodotSignalTarget::Node(origin_handle.clone())
+        });
 
         let _ = signal_sender.send(GodotSignal {
             name: signal_name_copy.clone(),
-            origin: origin_handle.clone(),
-            target: origin_handle,
+            origin: origin_handle,
+            target: target_handle,
             arguments,
         });
 
